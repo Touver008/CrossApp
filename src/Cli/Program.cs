@@ -1,31 +1,35 @@
-﻿using Core.Dto;
-using Core.Import;
+﻿using Core.Domain;
 
-string path = args.Length > 0 ? args[0] : Path.Combine("data", "sample.csv");
+Console.WriteLine("=== Сценарій 1: Успішне виконання операцій ===");
+Product product = Product.Create("P-001", "sku-001", "Цемент М400 25кг", "шт", 100);
+Console.WriteLine($"Створено: {product}");
 
-if (!File.Exists(path))
+product.RegisterArrival(50);
+Console.WriteLine($"Після приходу (+50): {product}");
+
+product.Issue(30);
+Console.WriteLine($"Після видачі (-30): {product}");
+
+Console.WriteLine();
+Console.WriteLine("=== Сценарій 2: Спроби порушення інваріантів (захист моделі) ===");
+
+TryDo("Видача більша за залишок", () => product.Issue(1000));
+TryDo("Прихід з від'ємною кількістю", () => product.RegisterArrival(-10));
+TryDo("Створення з порожнім SKU", () => Product.Create("P-002", "", "Пісок", "т", 10));
+TryDo("Створення з від'ємним залишком", () => Product.Create("P-003", "SKU-003", "Цегла", "шт", -5));
+
+Console.WriteLine();
+Console.WriteLine($"Стан об'єкта після всіх відмов: {product}");
+
+static void TryDo(string title, Action action)
 {
-    Console.WriteLine($"Помилка: файл не знайдено за шляхом: {Path.GetFullPath(path)}");
-    return 1;
-}
-
-ImportResult<ProductDto> result = ProductCsvImporter.Load(path);
-
-Console.WriteLine($"Завантажено записів: {result.Items.Count}");
-Console.WriteLine(new string('-', 60));
-foreach (ProductDto p in result.Items.Take(5))
-{
-    Console.WriteLine($" {p.Id,-6} {p.Sku,-10} {p.Name,-30} {p.Quantity,5} {p.Unit}");
-}
-Console.WriteLine(new string('-', 60));
-
-if (result.Errors.Count > 0)
-{
-    Console.WriteLine($"Пропущено пошкоджених рядків: {result.Errors.Count}");
-    foreach (string err in result.Errors)
+    try
     {
-        Console.WriteLine($" ! {err}");
+        action();
+        Console.WriteLine($" ! {title}: виняток НЕ спрацював (інваріант відсутній!)");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($" ✓ {title}: {ex.GetType().Name} — {ex.Message}");
     }
 }
-
-return 0;
