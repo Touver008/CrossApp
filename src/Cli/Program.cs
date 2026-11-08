@@ -1,32 +1,53 @@
-﻿using Core.Domain;
+﻿using Core;
+using Core.Abstractions;
+using Core.Services;
+using Core.Storage;
 
-Console.WriteLine("=== Сценарій 1: Успішне виконання операцій ===");
-Product product = Product.Create("P-001", "sku-001", "Цемент М400 25кг", "шт", 100);
-Console.WriteLine($"Створено: {product}");
+bool useFile = args.Contains("--file");
+string dataPath = Path.Combine(AppContext.BaseDirectory, "data", "catalog.json");
 
-product.RegisterArrival(50);
-Console.WriteLine($"Після приходу (+50): {product}");
+// Composition Root: єдине місце вибору реалізації сховища (Manual DI)
+ICatalogStore store = useFile
+    ? new FileCatalogStore(dataPath)
+    : new InMemoryCatalogStore(SampleData.Products());
 
-product.Issue(30);
-Console.WriteLine($"Після видачі (-30): {product}");
+var service = new CatalogService(store);
 
-Console.WriteLine();
-Console.WriteLine("=== Сценарій 2: Спроби порушення інваріантів (захист моделі) ===");
+Console.WriteLine($"=== Сховище: {store.GetType().Name} ===");
 
-TryDo("Видача більша за залишок", () => product.Issue(1000));
-TryDo("Прихід з від'ємною кількістю", () => product.RegisterArrival(-10));
-TryDo("Створення з порожнім SKU", () => Product.Create("P-002", "", "Пісок", "т", 10));
-TryDo("Створення з від'ємним залишком", () => Product.Create("P-003", "SKU-003", "Цегла", "шт", -5));
+// 1. Показ початкового стану
+Console.WriteLine($"\nУсього товарів у каталозі: {service.All().Count}");
 
-Console.WriteLine();
-Console.WriteLine($"Стан об'єкта після всіх відмов: {product}");
+// 2. Виконання бізнес-операції добавлення
+var newProduct = service.Add("SKU-999", "Кабель силовий 3х2.5", "м", 100);
+Console.WriteLine($"\n[+] Додано новий товар: {newProduct}");
+
+// 3. Зміна стану через прихід та видачу
+service.Receive(newProduct.Id, 50);
+Console.WriteLine($"[+] Прихід (+50): {service.Find(newProduct.Id)}");
+
+service.Issue(newProduct.Id, 30);
+Console.WriteLine($"[-] Видача (-30): {service.Find(newProduct.Id)}");
+
+// 4. Показ перших 5 товарів
+Console.WriteLine("\n--- Перелік товарів (перші 5) ---");
+foreach (var p in service.All().Take(5))
+{
+    Console.WriteLine($" {p.Id,-8} {p.Sku,-10} {p.Name,-32} {p.Quantity,6} {p.Unit}");
+}
+
+// 5. Демонстрація обробки винятків (Сценарії відмови)
+Console.WriteLine("\n=== Сценарії відмови ===");
+
+TryDo("Прихід для неіснуючого ID", () => service.Receive("NON-EXISTENT-ID", 10));
+TryDo("Видача більша за залишок", () => service.Issue(newProduct.Id, 9999));
 
 static void TryDo(string title, Action action)
 {
     try
     {
         action();
-        Console.WriteLine($" ! {title}: виняток НЕ спрацював (інваріант відсутній!)");
+        Console.WriteLine($" ! {title}: виняток НЕ спрацював");
     }
     catch (Exception ex)
     {
